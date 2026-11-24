@@ -39,6 +39,7 @@ import { ensureDbReady, getPglite } from "../db";
 import { emailAndPasswordEnabled } from "./email-password";
 import { GATE_PROVIDER_ID, gateIdentitySessions } from "./gate-session.server";
 import { GROK_PROVIDERS } from "./providers";
+import { legacyOAuthCallbackRoute, withLegacyCallbackPath } from "./legacy-oauth-callback";
 import { pgliteDialect } from "./pglite-dialect";
 import {
   GROK_ISSUER_DEFAULT,
@@ -150,8 +151,10 @@ export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";
 
 // Built separately so the `betterAuth({...})` call stays easy to edit without
 // breaking brackets (models often trip on the conditional plugin spread).
+// Better Auth 1.7: generic providers use the core social flow; keep the
+// broker-registered `/oauth2/callback/<id>` redirect_uri (see legacy-oauth-callback.ts).
 const grokOAuthPlugin = authConfigured
-  ? genericOAuth({
+  ? withLegacyCallbackPath(genericOAuth({
       config: GROK_PROVIDERS.map(({ providerId, idp }) => ({
         providerId,
         clientId: grokClientId as string,
@@ -169,7 +172,7 @@ const grokOAuthPlugin = authConfigured
         // and can pick (or switch) which account to sign in with.
         authorizationUrlParams: { idp, prompt: "login" },
       })),
-    })
+    }), GROK_PROVIDERS.map((p) => p.providerId))
   : null;
 
 export const auth = betterAuth({
@@ -236,7 +239,7 @@ export const auth = betterAuth({
 
     // One genericOAuth provider per upstream (when auth is on), all federating
     // to the broker with the SAME client and differing only by the `idp` hint.
-    ...(grokOAuthPlugin ? [grokOAuthPlugin] : []),
+    ...(grokOAuthPlugin ? [grokOAuthPlugin, legacyOAuthCallbackRoute()] : []),
 
     // Accept `Authorization: Bearer <session-token>` as an alternative to the
     // cookie. Needed for the LIVE PREVIEW: the app runs in an embedded iframe
